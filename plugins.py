@@ -1,25 +1,32 @@
+import random
 import re
 import time
-import random
-from telegram import Update
+from typing import Any, Dict, Optional
+
+from telegram import ChatType, Update
 from telegram.ext import ContextTypes
-from config import OWNER_ID, BOT_NAME
-from database import filters_db, confess_settings, confess_cooldown, save_json
-from config import FILTER_FILE, CONFESS_FILE
+
+from config import BOT_NAME, CONFESS_FILE, FILTER_FILE, OWNER_ID
+from database import confess_cooldown, confess_settings, filters_db, save_json
 
 
-# ================= VARIABLE PARSER =================
+def parse_variables(text: str, user, chat) -> str:
+    if not text:
+        return ""
 
-def parse_variables(text, user, chat):
-    username = f"@{user.username}" if user.username else user.first_name
+    username = f"@{user.username}" if getattr(user, "username", None) else getattr(user, "first_name", "")
 
-    variables = {
-        "{first}": user.first_name or "",
-        "{fullname}": user.full_name or "",
+    variables: Dict[str, str] = {
+        "{first}": getattr(user, "first_name", "") or "",
+        "{fullname}": getattr(user, "full_name", "") or "",
         "{username}": username,
-        "{mention}": f"<a href='tg://user?id={user.id}'>{user.first_name}</a>",
-        "{id}": str(user.id),
-        "{chatname}": chat.title or chat.first_name or "",
+        "{mention}": (
+            f"<a href='tg://user?id={user.id}'>{getattr(user, 'first_name', '')}</a>"
+            if getattr(user, "id", None) is not None
+            else ""
+        ),
+        "{id}": str(getattr(user, "id", "")),
+        "{chatname}": getattr(chat, "title", "") or getattr(chat, "first_name", "") or "",
         "{time}": time.strftime("%H:%M:%S"),
     }
 
@@ -29,14 +36,13 @@ def parse_variables(text, user, chat):
     return text
 
 
-# ================= START =================
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    fullname = user.full_name
+    if user is None:
+        return
 
     text = (
-        f"👋✨ Hai <b>{fullname}</b>!\n\n"
+        f"👋✨ Hai <b>{user.full_name}</b>!\n\n"
         f"Aku adalah bot <b>{BOT_NAME}</b> 🤖💖\n"
         "Yang akan membuat grupmu semakin ramai 🔥😆\n\n"
         "Ketik /waymenu untuk melihat semua fitur ku 📌✨"
@@ -45,9 +51,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="HTML")
 
 
-# ================= MENU =================
-
-async def waymenu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def waymenu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = f"""
 <b>🤖 MENU BOT {BOT_NAME}</b>
 
@@ -68,22 +72,19 @@ async def waymenu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="HTML")
 
 
-# ================= PING =================
-
 start_time = time.time()
 
-async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     uptime = int(time.time() - start_time)
     await update.message.reply_text(f"🏓 Bot aktif {uptime} detik 🔥")
 
 
-# ================= CONFESS =================
-
-async def set_confess(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
+async def set_confess(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None or update.effective_user.id != OWNER_ID:
         return
 
-    if update.effective_chat.type != "private":
+    if update.effective_chat.type != ChatType.PRIVATE:
         await update.message.reply_text("Gunakan di private chat bot.")
         return
 
@@ -91,7 +92,7 @@ async def set_confess(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Format:\n/setconfess -100xxxxxxxx")
         return
 
-    group_id = context.args[0]
+    group_id = context.args[0].strip()
     confess_settings["target_group"] = group_id
     confess_settings["cooldown"] = 60
     save_json(CONFESS_FILE, confess_settings)
@@ -99,26 +100,31 @@ async def set_confess(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ Grup target confess berhasil diset.")
 
 
-async def set_cooldown(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
+async def set_cooldown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None or update.effective_user.id != OWNER_ID:
         return
 
-    if update.effective_chat.type != "private":
+    if update.effective_chat.type != ChatType.PRIVATE:
         return
 
     if not context.args:
         await update.message.reply_text("Format:\n/setcooldown 60")
         return
 
-    delay = int(context.args[0])
+    try:
+        delay = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Cooldown harus berupa angka.")
+        return
+
     confess_settings["cooldown"] = delay
     save_json(CONFESS_FILE, confess_settings)
 
     await update.message.reply_text(f"✅ Cooldown diatur ke {delay} detik")
 
 
-async def confess(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.type != "private":
+async def confess(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_chat.type != ChatType.PRIVATE:
         return
 
     if "target_group" not in confess_settings:
@@ -136,9 +142,7 @@ async def confess(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id in confess_cooldown:
         remaining = delay - (now - confess_cooldown[user_id])
         if remaining > 0:
-            await update.message.reply_text(
-                f"⏳ Tunggu {int(remaining)} detik lagi."
-            )
+            await update.message.reply_text(f"⏳ Tunggu {int(remaining)} detik lagi.")
             return
 
     confess_cooldown[user_id] = now
@@ -153,19 +157,19 @@ async def confess(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=confess_settings["target_group"],
         text=text,
-        parse_mode="HTML"
+        parse_mode="HTML",
     )
 
-    await update.message.reply_text(
-        f"✅ Confess terkirim!\nBisa kirim lagi dalam {delay} detik ⏳"
-    )
+    await update.message.reply_text(f"✅ Confess terkirim!\nBisa kirim lagi dalam {delay} detik ⏳")
 
 
-# ================= SHIP =================
-
-async def ship(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message.reply_to_message:
+async def ship(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update.message.reply_to_message:
         await update.message.reply_text("Reply seseorang lalu ketik /ship 😏")
+        return
+
+    if update.message.reply_to_message.from_user is None:
+        await update.message.reply_text("User yang di-reply tidak valid.")
         return
 
     user1 = update.effective_user
@@ -181,24 +185,26 @@ async def ship(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="HTML")
 
 
-# ================= FILTER =================
-
-async def add_filter(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if ">" not in update.message.text:
+async def add_filter(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or ">" not in update.message.text:
         return
 
-    data = update.message.text.split(" ", 1)[1]
+    message = update.message.text.split(" ", 1)
+    if len(message) < 2:
+        return
+
+    data = message[1]
     trigger, reply = data.split(">", 1)
 
     chat_id = str(update.effective_chat.id)
     filters_db.setdefault(chat_id, {})
-    filters_db[chat_id][trigger.lower()] = {"reply": reply}
+    filters_db[chat_id][trigger.strip().lower()] = {"reply": reply.strip()}
 
     save_json(FILTER_FILE, filters_db)
     await update.message.reply_text("✅ Filter ditambahkan")
 
 
-async def stop_filter(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def stop_filter(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not context.args:
         return
 
@@ -211,7 +217,7 @@ async def stop_filter(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Filter dihapus")
 
 
-async def filter_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def filter_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = str(update.effective_chat.id)
 
     if chat_id not in filters_db:
@@ -225,7 +231,10 @@ async def filter_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="HTML")
 
 
-async def check_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def check_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update.message.text:
+        return
+
     chat_id = str(update.effective_chat.id)
     text = update.message.text
 
@@ -237,7 +246,7 @@ async def check_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply = parse_variables(
                 data["reply"],
                 update.effective_user,
-                update.effective_chat
+                update.effective_chat,
             )
             await update.message.reply_text(reply, parse_mode="HTML")
             break

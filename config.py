@@ -1,6 +1,9 @@
-BOT_TOKEN = "ISI_TOKEN_KAMU"
+import os
+
+BOT_TOKEN = os.getenv("BOT_TOKEN", "ISI_TOKEN_KAMU")
 OWNER_ID = 1056686795
 BOT_NAME = "Adik Kecil"
 
-FILTER_FILE = "filters.json"
-CONFESS_FILE = "confess_settings.json"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FILTER_FILE = os.path.join(BASE_DIR, "filters.json")
+CONFESS_FILE = os.path.join(BASE_DIR, "confess_settings.json")

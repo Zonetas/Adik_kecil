@@ -1,14 +1,10 @@
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    filters,
-)
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
 from config import BOT_TOKEN
 import plugins
 
-def main():
+
+def main() -> None:
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", plugins.start))
@@ -29,6 +25,7 @@ def main():
 
     print("Bot berjalan...")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
